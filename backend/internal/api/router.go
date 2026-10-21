@@ -48,6 +48,9 @@ func NewRouter(cfg *config.Config, db *database.MongoDB, hub *ws.Hub) *chi.Mux {
 	r.Get("/api/dares", dareHandler.GetAllDares)
 	r.Get("/api/dares/tiers", dareHandler.GetTiers)
 	r.Get("/api/leaderboard", dareHandler.GetLeaderboard)
+	r.Post("/api/dares/start-round", dareHandler.StartRoundDare)
+	r.Post("/api/dares/vote", dareHandler.VoteDare)
+	r.Get("/api/dares/current-round/{code}", dareHandler.GetCurrentRoundDare)
 
 	// Rooms & WebSocket
 	r.Post("/api/rooms/join", withOptionalAuth(cfg.JWTSecret, roomHandler.JoinRoom))

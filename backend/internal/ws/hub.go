@@ -3,6 +3,7 @@ package ws
 import (
 	"encoding/json"
 	"log"
+	"math"
 	"net/http"
 	"sync"
 	"time"
@@ -28,7 +29,24 @@ const (
 	EventDareCompleted    EventType = "dare_completed"
 	EventRoomPlayersSync  EventType = "room_players_sync"
 	EventActiveDareUpdate EventType = "active_dare_update"
+	EventRoundDareStart   EventType = "round_dare_start"
+	EventDareVoteUpdated  EventType = "dare_vote_updated"
 )
+
+type ActiveRoundDare struct {
+	RoomCode        string          `json:"room_code"`
+	DrawerNickname  string          `json:"drawer_nickname"`
+	DrawerDiscordID string          `json:"drawer_discord_id"`
+	DareID          string          `json:"dare_id"`
+	DareText        string          `json:"dare_text"`
+	DareDifficulty  string          `json:"dare_difficulty"`
+	Points          int             `json:"points"`
+	Word            string          `json:"word"`
+	Votes           map[string]bool `json:"votes"`
+	NeededVotes     int             `json:"needed_votes"`
+	CurrentVotes    int             `json:"current_votes"`
+	Completed       bool            `json:"completed"`
+}
 
 type WSMessage struct {
 	Type     EventType       `json:"type"`
@@ -51,6 +69,7 @@ type Client struct {
 type Hub struct {
 	clients    map[*Client]bool
 	rooms      map[string]map[*Client]bool
+	roundDares map[string]*ActiveRoundDare
 	broadcast  chan WSMessage
 	register   chan *Client
 	unregister chan *Client
@@ -61,6 +80,7 @@ func NewHub() *Hub {
 	return &Hub{
 		clients:    make(map[*Client]bool),
 		rooms:      make(map[string]map[*Client]bool),
+		roundDares: make(map[string]*ActiveRoundDare),
 		broadcast:  make(chan WSMessage, 100),
 		register:   make(chan *Client),
 		unregister: make(chan *Client),
@@ -136,9 +156,13 @@ func (h *Hub) broadcastRoomSync(roomCode string) {
 
 	var players []models.PlayerBadgeInfo
 	for c := range clients {
+		displayUser := c.Nickname
+		if displayUser == "" {
+			displayUser = c.DiscordID
+		}
 		players = append(players, models.PlayerBadgeInfo{
 			DiscordID:      c.DiscordID,
-			Username:       c.DiscordID,
+			Username:       displayUser,
 			InGameNickname: c.Nickname,
 			Points:         c.Points,
 			Tier:           c.Tier,
@@ -159,6 +183,86 @@ func (h *Hub) BroadcastToRoom(roomCode string, eventType EventType, payload []by
 		RoomCode: roomCode,
 		Payload:  payload,
 	}
+}
+
+func (h *Hub) StartRoundDare(roomCode, drawerNick, drawerDiscordID, dareID, dareText, dareDiff string, points int, word string) *ActiveRoundDare {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	// Calculate needed votes: ≥ 50% of active guessers in room
+	totalClients := len(h.rooms[roomCode])
+	guessers := totalClients - 1
+	needed := 1
+	if guessers > 1 {
+		needed = int(math.Ceil(float64(guessers) * 0.5))
+	}
+
+	active := &ActiveRoundDare{
+		RoomCode:        roomCode,
+		DrawerNickname:  drawerNick,
+		DrawerDiscordID: drawerDiscordID,
+		DareID:          dareID,
+		DareText:        dareText,
+		DareDifficulty:  dareDiff,
+		Points:          points,
+		Word:            word,
+		Votes:           make(map[string]bool),
+		NeededVotes:     needed,
+		CurrentVotes:    0,
+		Completed:       false,
+	}
+
+	h.roundDares[roomCode] = active
+
+	payload, err := json.Marshal(active)
+	if err == nil {
+		h.BroadcastToRoom(roomCode, EventRoundDareStart, payload)
+	}
+
+	return active
+}
+
+func (h *Hub) VoteDare(roomCode, voterID string) (*ActiveRoundDare, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	active, exists := h.roundDares[roomCode]
+	if !exists || active == nil || active.Completed {
+		return active, false
+	}
+
+	// Drawer cannot vote for themselves
+	if voterID == active.DrawerNickname || (active.DrawerDiscordID != "" && voterID == active.DrawerDiscordID) {
+		return active, false
+	}
+
+	active.Votes[voterID] = true
+	active.CurrentVotes = len(active.Votes)
+
+	// Broadcast vote update
+	updatePayload, _ := json.Marshal(map[string]interface{}{
+		"room_code":      roomCode,
+		"drawer":         active.DrawerNickname,
+		"current_votes":  active.CurrentVotes,
+		"needed_votes":   active.NeededVotes,
+		"voter":          voterID,
+		"dare_id":        active.DareID,
+	})
+	h.BroadcastToRoom(roomCode, EventDareVoteUpdated, updatePayload)
+
+	approved := false
+	if active.CurrentVotes >= active.NeededVotes && !active.Completed {
+		active.Completed = true
+		approved = true
+	}
+
+	return active, approved
+}
+
+func (h *Hub) GetRoundDare(roomCode string) *ActiveRoundDare {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.roundDares[roomCode]
 }
 
 func (c *Client) ReadPump() {

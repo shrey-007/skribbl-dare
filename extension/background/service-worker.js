@@ -38,6 +38,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === 'START_ROUND_DARE') {
+    startRoundDare(message.payload)
+      .then(res => sendResponse({ success: true, data: res }))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  if (message.type === 'VOTE_DARE') {
+    submitVote(message.payload)
+      .then(res => sendResponse({ success: true, data: res }))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  if (message.type === 'GET_ROUND_DARE') {
+    getRoundDare(message.room_code)
+      .then(res => sendResponse({ success: true, data: res }))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
   if (message.type === 'COMPLETE_DARE') {
     submitDareCompletion(message.payload)
       .then(result => sendResponse({ success: true, result }))
@@ -123,4 +144,44 @@ async function submitDareCompletion(payload) {
   }
 
   return data;
+}
+
+async function startRoundDare(payload) {
+  const resp = await fetch(`${API_BASE}/api/dares/start-round`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'ngrok-skip-browser-warning': 'true'
+    },
+    body: JSON.stringify(payload)
+  });
+  if (!resp.ok) {
+    throw new Error('Failed to broadcast round dare');
+  }
+  return await resp.json();
+}
+
+async function submitVote(payload) {
+  const resp = await fetch(`${API_BASE}/api/dares/vote`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'ngrok-skip-browser-warning': 'true'
+    },
+    body: JSON.stringify(payload)
+  });
+  if (!resp.ok) {
+    throw new Error('Failed to submit dare vote');
+  }
+  return await resp.json();
+}
+
+async function getRoundDare(roomCode) {
+  const resp = await fetch(`${API_BASE}/api/dares/current-round/${roomCode}`, {
+    headers: { 'ngrok-skip-browser-warning': 'true' }
+  });
+  if (!resp.ok) {
+    throw new Error('Failed to get round dare');
+  }
+  return await resp.json();
 }

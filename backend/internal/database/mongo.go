@@ -148,10 +148,37 @@ func (db *MongoDB) SetActiveDare(ctx context.Context, discordID string, dare *mo
 	return err
 }
 
-func (db *MongoDB) AwardPointsAndCompleteDare(ctx context.Context, discordID, dareID, word, roomCode string) (*models.CompleteDareResponse, error) {
-	user, err := db.GetUserByDiscordID(ctx, discordID)
+func (db *MongoDB) GetUserByNickname(ctx context.Context, nickname string) (*models.User, error) {
+	if nickname == "" {
+		return nil, nil
+	}
+	var user models.User
+	err := db.Users.FindOne(ctx, bson.M{
+		"$or": []bson.M{
+			{"ingame_nickname": bson.M{"$regex": fmt.Sprintf("^%s$", nickname), "$options": "i"}},
+			{"username": bson.M{"$regex": fmt.Sprintf("^%s$", nickname), "$options": "i"}},
+		},
+	}).Decode(&user)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &user, nil
+}
+
+func (db *MongoDB) AwardPointsAndCompleteDare(ctx context.Context, identifier, dareID, word, roomCode string) (*models.CompleteDareResponse, error) {
+	var user *models.User
+	var err error
+	if identifier != "" {
+		user, err = db.GetUserByDiscordID(ctx, identifier)
+	}
+	if user == nil {
+		user, err = db.GetUserByNickname(ctx, identifier)
+	}
 	if err != nil || user == nil {
-		return nil, fmt.Errorf("user not found")
+		return nil, fmt.Errorf("user not found for identifier: %s", identifier)
 	}
 
 	// Locate dare details
@@ -177,7 +204,7 @@ func (db *MongoDB) AwardPointsAndCompleteDare(ctx context.Context, discordID, da
 
 	now := time.Now()
 	// Update user in DB
-	filter := bson.M{"discord_id": discordID}
+	filter := bson.M{"_id": user.ID}
 	update := bson.M{
 		"$set": bson.M{
 			"points":      newPoints,
@@ -199,7 +226,7 @@ func (db *MongoDB) AwardPointsAndCompleteDare(ctx context.Context, discordID, da
 	historyEntry := models.DareHistoryEntry{
 		ID:          primitive.NewObjectID(),
 		UserID:      user.ID,
-		DiscordID:   discordID,
+		DiscordID:   user.DiscordID,
 		DareID:      dare.ID,
 		DareText:    dare.Text,
 		Word:        word,

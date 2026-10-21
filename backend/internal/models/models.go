@@ -145,3 +145,30 @@ type PlayerBadgeInfo struct {
 	Tier           Tier   `json:"tier"`
 	AvatarURL      string `json:"avatar_url"`
 }
+
+type StartRoundDareRequest struct {
+	RoomCode        string `json:"room_code"`
+	DrawerNickname  string `json:"drawer_nickname"`
+	DrawerDiscordID string `json:"drawer_discord_id"`
+	DareID          string `json:"dare_id"`
+	DareText        string `json:"dare_text"`
+	DareDifficulty  string `json:"dare_difficulty"`
+	Points          int    `json:"points"`
+	Word            string `json:"word"`
+}
+
+type VoteDareRequest struct {
+	RoomCode        string `json:"room_code"`
+	VoterNickname   string `json:"voter_nickname"`
+	VoterDiscordID  string `json:"voter_discord_id"`
+	DrawerNickname  string `json:"drawer_nickname"`
+	DareID          string `json:"dare_id"`
+}
+
+type VoteDareResponse struct {
+	Success      bool   `json:"success"`
+	CurrentVotes int    `json:"current_votes"`
+	NeededVotes  int    `json:"needed_votes"`
+	Approved     bool   `json:"approved"`
+	Message      string `json:"message"`
+}

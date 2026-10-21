@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/go-chi/chi/v5"
 	"skribbl-dare-backend/internal/auth"
 	"skribbl-dare-backend/internal/database"
 	"skribbl-dare-backend/internal/dares"
@@ -100,5 +101,83 @@ func (h *DareHandler) GetLeaderboard(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"leaderboard": users,
+	})
+}
+
+func (h *DareHandler) StartRoundDare(w http.ResponseWriter, r *http.Request) {
+	var req models.StartRoundDareRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.RoomCode == "" {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
+	active := h.hub.StartRoundDare(req.RoomCode, req.DrawerNickname, req.DrawerDiscordID, req.DareID, req.DareText, req.DareDifficulty, req.Points, req.Word)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"dare":    active,
+	})
+}
+
+func (h *DareHandler) VoteDare(w http.ResponseWriter, r *http.Request) {
+	var req models.VoteDareRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.RoomCode == "" {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	voter := req.VoterNickname
+	if voter == "" {
+		voter = req.VoterDiscordID
+	}
+
+	active, approved := h.hub.VoteDare(req.RoomCode, voter)
+	if active == nil {
+		http.Error(w, "No active dare for this room", http.StatusNotFound)
+		return
+	}
+
+	if approved {
+		// Award points to drawer
+		targetID := active.DrawerDiscordID
+		if targetID == "" {
+			targetID = active.DrawerNickname
+		}
+
+		resp, err := h.db.AwardPointsAndCompleteDare(r.Context(), targetID, active.DareID, active.Word, active.RoomCode)
+		if err == nil && resp != nil {
+			eventPayload, _ := json.Marshal(map[string]interface{}{
+				"user":          active.DrawerNickname,
+				"nickname":      active.DrawerNickname,
+				"points_earned": resp.PointsEarned,
+				"total_points":  resp.TotalPoints,
+				"tier":          resp.Tier,
+				"tier_upgraded": resp.TierUpgraded,
+				"word":          active.Word,
+				"votes":         active.CurrentVotes,
+				"needed_votes":  active.NeededVotes,
+			})
+			h.hub.BroadcastToRoom(active.RoomCode, ws.EventDareCompleted, eventPayload)
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":       true,
+		"approved":      approved,
+		"current_votes": active.CurrentVotes,
+		"needed_votes":  active.NeededVotes,
+	})
+}
+
+func (h *DareHandler) GetCurrentRoundDare(w http.ResponseWriter, r *http.Request) {
+	roomCode := chi.URLParam(r, "code")
+	active := h.hub.GetRoundDare(roomCode)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"active": active != nil,
+		"dare":   active,
 	})
 }
