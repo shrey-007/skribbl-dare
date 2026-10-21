@@ -108,6 +108,11 @@
   }
 
   function updateAllUI() {
+    const homeWidget = document.querySelector('#skribbl-dare-home-card');
+    if (homeWidget) delete homeWidget.dataset.renderKey;
+    const topbar = document.querySelector('#skribbl-dare-topbar-widget');
+    if (topbar) delete topbar.dataset.renderKey;
+
     injectHomeLoginWidget();
     injectTopbarWidget();
     updatePlayerBadges();
@@ -126,6 +131,12 @@
       const container = homePanel.querySelector('.container-name-lang') || homePanel.firstChild;
       homePanel.insertBefore(widget, container);
     }
+
+    const currentKey = currentUser ? `${currentUser.username}_${currentUser.points}_${currentUser.tier ? currentUser.tier.name : ''}` : 'logged_out';
+    if (widget.dataset.renderKey === currentKey) {
+      return; // Already rendered this state, do not mutate DOM
+    }
+    widget.dataset.renderKey = currentKey;
 
     if (!currentUser || !currentToken) {
       widget.innerHTML = `
@@ -190,6 +201,12 @@
       topbar.className = 'skribbl-dare-topbar-widget';
       document.body.appendChild(topbar);
     }
+
+    const currentKey = currentUser ? `${currentUser.username}_${currentUser.points}_${currentUser.tier ? currentUser.tier.name : ''}` : 'logged_out';
+    if (topbar.dataset.renderKey === currentKey) {
+      return; // Already rendered this state, do not mutate DOM
+    }
+    topbar.dataset.renderKey = currentKey;
 
     if (currentUser && currentToken) {
       const stickerSrc = STICKER_URLS[currentUser.tier.sticker_id] || STICKER_URLS.warmup_artist;
@@ -339,15 +356,28 @@
   }
 
   // --- 5. DOM Observer (Word Picker, Badges, Buttons) ---
+  let observerDebounceTimer = null;
+
   function observeGameDOM() {
-    const observer = new MutationObserver(() => {
-      checkWordChoiceModal();
-      injectCompletedDareButton();
-      injectHomeLoginWidget();
-      updatePlayerBadges();
+    const observer = new MutationObserver((mutations) => {
+      // Ignore mutations originating from our own elements to avoid any feedback loops
+      const onlyOurWidgets = mutations.every(m => {
+        const el = m.target;
+        return el && el.closest && el.closest('#skribbl-dare-home-card, #skribbl-dare-topbar-widget, #skribbl-dare-hud, #skribbl-dare-prompt-card, .skribbl-dare-player-badge');
+      });
+      if (onlyOurWidgets) return;
+
+      if (observerDebounceTimer) return;
+      observerDebounceTimer = setTimeout(() => {
+        observerDebounceTimer = null;
+        checkWordChoiceModal();
+        injectCompletedDareButton();
+        injectHomeLoginWidget();
+        updatePlayerBadges();
+      }, 200);
     });
 
-    observer.observe(document.body, { childList: true, subtree: true, attributes: true });
+    observer.observe(document.body, { childList: true, subtree: true });
   }
 
   // --- 6. Word Selection Dare Injection ---
@@ -669,6 +699,12 @@
         badgeContainer.className = 'skribbl-dare-player-badge';
         nameEl.appendChild(badgeContainer);
       }
+
+      const badgeKey = `${playerInfo.username}_${playerInfo.points}_${playerInfo.tier.name}`;
+      if (badgeContainer.dataset.badgeKey === badgeKey) {
+        return; // Already rendered this badge, do not touch DOM
+      }
+      badgeContainer.dataset.badgeKey = badgeKey;
 
       badgeContainer.innerHTML = `
         <img class="skribbl-dare-sticker" src="${stickerSrc}" alt="${playerInfo.tier.name}" title="${playerInfo.tier.name} (${playerInfo.tier.rarity}) · ${playerInfo.points} pts">
