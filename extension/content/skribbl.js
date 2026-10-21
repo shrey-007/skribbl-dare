@@ -1,7 +1,13 @@
 /**
  * Skribbl Dare — Content Script for Skribbl.io
  * Injects Dare selection cards, Home screen Login & Profile widget,
- * "Completed Dare" reward buttons, and Tier Stickers/Badges into the player list.
+ * Guesser voting UI, and Tier Stickers/Badges into the player list.
+ *
+ * RULES:
+ * - Drawer sees dare info HUD (no claim/complete buttons).
+ * - Guessers see a vote banner to approve the drawer's dare.
+ * - >= 50% guesser votes required to award points.
+ * - Never touch #game-rate or skribbl's native like/dislike buttons.
  */
 
 (function () {
@@ -14,13 +20,14 @@
   // State
   let currentUser = null;
   let currentToken = null;
-  let activeDare = null;
+  let activeDare = null;       // Dare the local drawer picked this round
   let chosenWord = '';
-  let dareClaimedThisRound = false;
   let roomPlayers = new Map(); // nickname -> PlayerBadgeInfo
   let roomCode = getRoomCode();
   let wsConnection = null;
   let isPromptingDare = false;
+  let isDrawingThisRound = false; // True when local player is the drawer
+  let hasVotedThisRound = false;  // Prevent double-voting
 
   // Tier sticker path map
   const STICKER_URLS = {
@@ -35,7 +42,6 @@
   loadAuth();
   startRoomSync();
   observeGameDOM();
-  injectCompletedDareButton();
   injectTopbarWidget();
   injectHomeLoginWidget();
 
@@ -85,7 +91,7 @@
       if (res && res.token) {
         currentToken = res.token;
         currentUser = res.user;
-        console.log('⚡ [Skribbl Dare] Authenticated as:', currentUser.username, 'Tier:', currentUser.tier.name);
+        console.log('⚡ [Skribbl Dare] Authenticated as:', currentUser.username);
         connectWebSocket();
         updateAllUI();
       }
@@ -100,7 +106,7 @@
           skribbl_dare_jwt: currentToken,
           skribbl_dare_user: currentUser
         });
-        showToast(`🎉 Connected as ${currentUser.username}! Tier: ${currentUser.tier.name}`);
+        showToast(`🎉 Connected as ${currentUser.username}!`);
         connectWebSocket();
         updateAllUI();
       }
@@ -192,7 +198,7 @@
     }
   }
 
-  // --- 3. Persistent Topbar Widget ---
+  // --- 3. Persistent Topbar Widget (name + sticker only, no tier name) ---
   function injectTopbarWidget() {
     let topbar = document.querySelector('#skribbl-dare-topbar-widget');
     if (!topbar) {
@@ -211,14 +217,13 @@
     if (currentUser && currentToken) {
       const stickerSrc = STICKER_URLS[currentUser.tier.sticker_id] || STICKER_URLS.warmup_artist;
       topbar.innerHTML = `
-        <img class="skribbl-dare-topbar-sticker" src="${stickerSrc}" alt="Tier">
+        <img class="skribbl-dare-topbar-sticker" src="${stickerSrc}" alt="Tier" title="${escapeHTML(currentUser.tier.name)} (${escapeHTML(currentUser.tier.rarity)})">
         <span>${escapeHTML(currentUser.username)}</span>
-        <span style="color: ${currentUser.tier.color_hex}; font-size: 10px;">${escapeHTML(currentUser.tier.name)}</span>
         <span style="color: #f59e0b;">🔥 ${currentUser.points}</span>
       `;
-      topbar.title = 'Click to open Skribbl Dare profile';
+      topbar.title = `${currentUser.tier.name} (${currentUser.tier.rarity}) · ${currentUser.points} pts`;
       topbar.onclick = () => {
-        showToast(`👤 ${currentUser.username} | Tier: ${currentUser.tier.name} (${currentUser.tier.rarity}) | ${currentUser.points} pts`);
+        showToast(`👤 ${currentUser.username} | ${currentUser.tier.name} | ${currentUser.points} pts`);
       };
     } else {
       topbar.innerHTML = `
@@ -255,7 +260,7 @@
       if (res && res.success) {
         currentToken = res.data.token;
         currentUser = res.data.user;
-        showToast(`⚡ Logged in as ${currentUser.username}! Tier: ${currentUser.tier.name}`);
+        showToast(`⚡ Logged in as ${currentUser.username}!`);
         connectWebSocket();
         updateAllUI();
       } else {
@@ -316,14 +321,27 @@
         if (p.username) roomPlayers.set(p.username.toLowerCase(), p);
       });
       updatePlayerBadges();
-    } else if (msg.type === 'dare_completed') {
+    }
+
+    // -- VOTING SYSTEM WS EVENTS --
+
+    // A drawer started a dare round. If we're NOT the drawer, show the vote UI.
+    if (msg.type === 'round_dare_start' && msg.payload) {
       const data = typeof msg.payload === 'string' ? JSON.parse(msg.payload) : msg.payload;
-      showToast(`🎯 ${data.nickname || data.user} completed a dare (+${data.points_earned} pts)!`);
-      if (data.tier_upgraded) {
-        showToast(`🌟 ${data.nickname || data.user} unlocked tier: ${data.tier.name}!`, 5000);
-      }
-      playCelebrationSound();
-      triggerConfetti();
+      console.log('📢 [Skribbl Dare] Round dare started:', data);
+      handleRoundDareStart(data);
+    }
+
+    // Vote count updated
+    if (msg.type === 'dare_vote_updated' && msg.payload) {
+      const data = typeof msg.payload === 'string' ? JSON.parse(msg.payload) : msg.payload;
+      updateVoteCountUI(data);
+    }
+
+    // Dare approved & completed
+    if (msg.type === 'dare_completed' && msg.payload) {
+      const data = typeof msg.payload === 'string' ? JSON.parse(msg.payload) : msg.payload;
+      handleDareCompletedEvent(data);
     }
   }
 
@@ -355,7 +373,7 @@
     }, 4000);
   }
 
-  // --- 5. DOM Observer (Word Picker, Badges, Buttons) ---
+  // --- 5. DOM Observer (Word Picker, Badges) ---
   let observerDebounceTimer = null;
 
   function observeGameDOM() {
@@ -363,7 +381,7 @@
       // Ignore mutations originating from our own elements to avoid any feedback loops
       const onlyOurWidgets = mutations.every(m => {
         const el = m.target;
-        return el && el.closest && el.closest('#skribbl-dare-home-card, #skribbl-dare-topbar-widget, #skribbl-dare-hud, #skribbl-dare-prompt-card, .skribbl-dare-player-badge');
+        return el && el.closest && el.closest('#skribbl-dare-home-card, #skribbl-dare-topbar-widget, #skribbl-dare-hud, #skribbl-dare-prompt-card, #skribbl-dare-vote-panel, .skribbl-dare-player-badge');
       });
       if (onlyOurWidgets) return;
 
@@ -371,7 +389,6 @@
       observerDebounceTimer = setTimeout(() => {
         observerDebounceTimer = null;
         checkWordChoiceModal();
-        injectCompletedDareButton();
         injectHomeLoginWidget();
         updatePlayerBadges();
       }, 200);
@@ -380,9 +397,8 @@
     observer.observe(document.body, { childList: true, subtree: true });
   }
 
-  // --- 6. Word Selection Dare Injection ---
+  // --- 6. Word Selection Dare Injection (DRAWER ONLY) ---
   async function checkWordChoiceModal() {
-    // In skribbl.io, words appear inside .overlay-content .words (or #game-canvas .overlay-content .words)
     const wordsContainer = document.querySelector('#game-canvas .overlay-content .words, .overlay-content .words, .words');
     if (!wordsContainer) return;
 
@@ -398,7 +414,11 @@
       }
 
       isPromptingDare = true;
-      dareClaimedThisRound = false;
+      isDrawingThisRound = true;
+      hasVotedThisRound = false;
+
+      // Remove any leftover vote panel from previous rounds
+      removeVotePanel();
 
       try {
         const dare = await fetchDare();
@@ -461,7 +481,8 @@
       </div>
       <div class="skribbl-dare-title">${escapeHTML(dare.text)}</div>
       <div class="skribbl-dare-hint">
-        💡 Pick your word below and complete this dare to earn +${dare.points} pts!
+        💡 Pick your word below and complete this dare to earn points!
+        <br>Other players will vote on whether you completed it.
       </div>
     `;
 
@@ -474,8 +495,12 @@
       btn.addEventListener('click', function () {
         chosenWord = this.textContent.trim();
         console.log('🎯 Word chosen:', chosenWord, 'with dare:', dare.text);
-        showFloatingHUD(dare);
-        enableCompletedDareButton(dare);
+
+        // Show the drawer's HUD (no claim button, info only)
+        showDrawerHUD(dare);
+
+        // Broadcast START_ROUND_DARE to backend so guessers see the vote UI
+        broadcastRoundDareStart(dare);
       }, { once: true });
     });
 
@@ -495,8 +520,8 @@
     });
   }
 
-  // --- 7. Floating Active Dare HUD (During Drawing) ---
-  function showFloatingHUD(dare) {
+  // --- 7. Drawer HUD (Info only, NO claim button) ---
+  function showDrawerHUD(dare) {
     let hud = document.querySelector('#skribbl-dare-hud');
     if (!hud) {
       hud = document.createElement('div');
@@ -517,155 +542,244 @@
     hud.innerHTML = `
       <div class="skribbl-dare-hud-top">
         <span class="skribbl-dare-hud-label" style="color: ${color};">
-          ⚡ ACTIVE DARE · +${dare.points} PTS
+          ⚡ YOUR ACTIVE DARE · +${dare.points} PTS
         </span>
         <button class="skribbl-dare-hud-close" title="Hide HUD">✕</button>
       </div>
       <div class="skribbl-dare-hud-text">${escapeHTML(dare.text)}</div>
-      <button id="btn-claim-hud" class="skribbl-dare-hud-claim-btn">
-        <span>🎯 Completed Dare! Claim +${dare.points}</span>
-      </button>
+      <div class="skribbl-dare-hud-info">
+        🗳️ Other players will vote on whether you completed this dare
+      </div>
     `;
     hud.style.display = 'flex';
 
     hud.querySelector('.skribbl-dare-hud-close').addEventListener('click', () => {
       hud.style.display = 'none';
     });
-
-    hud.querySelector('#btn-claim-hud').addEventListener('click', handleCompleteDareClick);
   }
 
-  // --- 8. "Completed Dare" Action Button ---
-  function injectCompletedDareButton() {
-    if (document.querySelector('#btn-completed-dare')) return;
+  // --- 8. Broadcast round dare to backend (drawer -> server -> all guessers via WS) ---
+  function broadcastRoundDareStart(dare) {
+    const myNick = getMyInGameNickname();
+    const payload = {
+      room_code: getRoomCode(),
+      drawer_nickname: myNick,
+      drawer_discord_id: currentUser ? (currentUser.discord_id || currentUser.id || '') : '',
+      dare_id: dare.id || dare.ID || '',
+      dare_text: dare.text,
+      dare_difficulty: dare.difficulty,
+      points: dare.points,
+      word: chosenWord
+    };
 
-    const rateContainer = document.querySelector('#game-rate') ||
-      document.querySelector('.rate-container') ||
-      document.querySelector('#game-toolbar');
+    chrome.runtime.sendMessage({ type: 'START_ROUND_DARE', payload }, (res) => {
+      if (res && res.success) {
+        console.log('✅ Round dare broadcast to room');
+      } else {
+        console.warn('⚠️ Failed to broadcast round dare:', res);
+      }
+    });
+  }
 
-    if (!rateContainer) return;
+  // --- 9. Guesser Voting UI ---
 
-    const btn = document.createElement('button');
-    btn.id = 'btn-completed-dare';
-    btn.className = 'skribbl-dare-complete-btn disabled';
-    btn.innerHTML = `
-      <span class="btn-icon">🎯</span>
-      <span class="btn-text">Completed Dare</span>
+  /**
+   * Called when a WS event `round_dare_start` is received.
+   * If the local player is NOT the drawer, show a voting panel.
+   */
+  function handleRoundDareStart(data) {
+    const myNick = getMyInGameNickname().toLowerCase();
+    const drawerNick = (data.DrawerNickname || data.drawer_nickname || '').toLowerCase();
+
+    // If I'm the drawer, don't show voting UI
+    if (myNick === drawerNick) {
+      isDrawingThisRound = true;
+      return;
+    }
+
+    // I'm a guesser — show the vote panel
+    isDrawingThisRound = false;
+    hasVotedThisRound = false;
+    showVotePanel(data);
+  }
+
+  function showVotePanel(data) {
+    removeVotePanel();
+
+    const drawerName = data.DrawerNickname || data.drawer_nickname || 'Someone';
+    const dareText = data.DareText || data.dare_text || 'a dare';
+    const dareDiff = data.DareDifficulty || data.dare_difficulty || 'Unknown';
+    const points = data.Points || data.points || 0;
+    const neededVotes = data.NeededVotes || data.needed_votes || 1;
+    const currentVotes = data.CurrentVotes || data.current_votes || 0;
+
+    const rarityColors = {
+      Common: '#10b981',
+      Uncommon: '#3b82f6',
+      Rare: '#a855f7',
+      Epic: '#ef4444',
+      Legendary: '#f59e0b',
+    };
+    const color = rarityColors[dareDiff] || '#6366f1';
+
+    const panel = document.createElement('div');
+    panel.id = 'skribbl-dare-vote-panel';
+    panel.className = 'skribbl-dare-vote-panel';
+    panel.innerHTML = `
+      <div class="skribbl-dare-vote-header">
+        <span class="skribbl-dare-vote-badge" style="background: ${color}22; border-color: ${color}; color: ${color};">
+          🎯 ${escapeHTML(dareDiff).toUpperCase()} DARE · +${points} PTS
+        </span>
+      </div>
+      <div class="skribbl-dare-vote-dare-text">
+        <strong>${escapeHTML(drawerName)}</strong> has a dare:
+      </div>
+      <div class="skribbl-dare-vote-dare-desc">"${escapeHTML(dareText)}"</div>
+      <div class="skribbl-dare-vote-progress">
+        <span id="skribbl-dare-vote-count">Votes: ${currentVotes}/${neededVotes} needed</span>
+      </div>
+      <button id="skribbl-dare-vote-btn" class="skribbl-dare-vote-btn">
+        ✅ Yes, they completed it!
+      </button>
     `;
 
-    btn.addEventListener('click', handleCompleteDareClick);
+    document.body.appendChild(panel);
 
-    const likeBtn = rateContainer.querySelector('.like, .rate-like') || rateContainer.firstChild;
-    if (likeBtn && likeBtn.parentNode === rateContainer) {
-      rateContainer.insertBefore(btn, likeBtn.nextSibling);
-    } else {
-      rateContainer.appendChild(btn);
-    }
+    panel.querySelector('#skribbl-dare-vote-btn').addEventListener('click', () => {
+      if (hasVotedThisRound) {
+        showToast('✅ You already voted this round!');
+        return;
+      }
+      submitDareVote(data);
+    });
   }
 
-  function enableCompletedDareButton(dare) {
-    const btn = document.querySelector('#btn-completed-dare');
-    if (btn) {
-      dareClaimedThisRound = false;
-      btn.classList.remove('disabled', 'claimed');
-      btn.innerHTML = `
-        <span class="btn-icon">🎯</span>
-        <span class="btn-text">Completed Dare (+${dare.points})</span>
-      `;
-    }
-
-    const hudBtn = document.querySelector('#btn-claim-hud');
-    if (hudBtn) {
-      hudBtn.disabled = false;
-      hudBtn.classList.remove('claimed');
-      hudBtn.innerHTML = `<span>🎯 Completed Dare! Claim +${dare.points}</span>`;
-    }
+  function removeVotePanel() {
+    const existing = document.querySelector('#skribbl-dare-vote-panel');
+    if (existing) existing.remove();
   }
 
-  async function handleCompleteDareClick() {
-    if (dareClaimedThisRound) {
-      showToast('✅ Dare already claimed for this round!');
-      return;
+  function submitDareVote(data) {
+    hasVotedThisRound = true;
+
+    const voteBtn = document.querySelector('#skribbl-dare-vote-btn');
+    if (voteBtn) {
+      voteBtn.disabled = true;
+      voteBtn.classList.add('voted');
+      voteBtn.innerHTML = '⏳ Submitting vote...';
     }
 
-    if (!activeDare) {
-      showToast('⚠️ No active dare registered for this round!');
-      return;
-    }
+    const myNick = getMyInGameNickname();
+    const payload = {
+      room_code: getRoomCode(),
+      voter_nickname: myNick,
+      voter_discord_id: currentUser ? (currentUser.discord_id || currentUser.id || '') : '',
+      vote: true
+    };
 
-    if (!currentToken) {
-      showToast('🔒 Please log in with Discord or Dev mode on the home screen to earn points!');
-      return;
-    }
-
-    const btn = document.querySelector('#btn-completed-dare');
-    const hudBtn = document.querySelector('#btn-claim-hud');
-
-    if (btn) {
-      btn.classList.add('disabled');
-      btn.innerHTML = `<span class="btn-icon">⏳</span><span class="btn-text">Claiming...</span>`;
-    }
-    if (hudBtn) {
-      hudBtn.disabled = true;
-      hudBtn.innerHTML = `<span>⏳ Claiming...</span>`;
-    }
-
-    try {
-      const payload = {
-        dare_id: activeDare.id || activeDare.ID,
-        word: chosenWord || 'Unknown',
-        room_code: getRoomCode()
-      };
-
-      chrome.runtime.sendMessage({ type: 'COMPLETE_DARE', payload }, (res) => {
-        if (res && res.success) {
-          const result = res.result;
-          dareClaimedThisRound = true;
-
-          if (btn) {
-            btn.classList.remove('disabled');
-            btn.classList.add('claimed');
-            btn.innerHTML = `<span class="btn-icon">✅</span><span class="btn-text">Dare Completed! (+${result.points_earned} pts)</span>`;
-          }
-          if (hudBtn) {
-            hudBtn.classList.add('claimed');
-            hudBtn.innerHTML = `<span>✅ Claimed! (+${result.points_earned} pts)</span>`;
-          }
-
-          playCelebrationSound();
-          triggerConfetti();
-
-          showToast(`🎉 Dare Completed! +${result.points_earned} pts earned!`);
-          if (result.tier_upgraded) {
-            showToast(`🚀 PROMOTED! You unlocked: ${result.tier.name} (${result.tier.rarity})!`, 6000);
-          }
-
-          if (currentUser) {
-            currentUser.points = result.total_points;
-            currentUser.tier = result.tier;
-          }
-          updateAllUI();
-        } else {
-          if (btn) {
-            btn.classList.remove('disabled');
-            btn.innerHTML = `<span class="btn-icon">❌</span><span class="btn-text">Failed to claim</span>`;
-          }
-          if (hudBtn) {
-            hudBtn.disabled = false;
-            hudBtn.innerHTML = `<span>❌ Failed to claim</span>`;
-          }
-          showToast(`❌ ${res ? res.error : 'Failed to complete dare'}`);
-          setTimeout(() => enableCompletedDareButton(activeDare), 2500);
+    chrome.runtime.sendMessage({ type: 'VOTE_DARE', payload }, (res) => {
+      if (res && res.success) {
+        const d = res.data;
+        if (voteBtn) {
+          voteBtn.innerHTML = '✅ Voted!';
         }
-      });
-    } catch (e) {
-      if (btn) btn.classList.remove('disabled');
-      if (hudBtn) hudBtn.disabled = false;
-      showToast('❌ Error connecting to dare server');
+        const countEl = document.querySelector('#skribbl-dare-vote-count');
+        if (countEl) {
+          countEl.textContent = `Votes: ${d.current_votes}/${d.needed_votes} needed`;
+        }
+        showToast('🗳️ Your vote has been submitted!');
+
+        if (d.approved) {
+          handleVoteApproved();
+        }
+      } else {
+        if (voteBtn) {
+          voteBtn.disabled = false;
+          voteBtn.classList.remove('voted');
+          voteBtn.innerHTML = '✅ Yes, they completed it!';
+        }
+        hasVotedThisRound = false;
+        showToast(`❌ Vote failed: ${res ? res.error : 'Unknown error'}`);
+      }
+    });
+  }
+
+  function updateVoteCountUI(data) {
+    const countEl = document.querySelector('#skribbl-dare-vote-count');
+    if (countEl) {
+      countEl.textContent = `Votes: ${data.current_votes}/${data.needed_votes} needed`;
     }
   }
 
-  // --- 9. Player List Sticker & Tag Injection ---
+  function handleVoteApproved() {
+    const panel = document.querySelector('#skribbl-dare-vote-panel');
+    if (panel) {
+      panel.classList.add('approved');
+      const btn = panel.querySelector('#skribbl-dare-vote-btn');
+      if (btn) {
+        btn.innerHTML = '🎉 Dare Approved! Points Awarded!';
+        btn.disabled = true;
+      }
+    }
+  }
+
+  function handleDareCompletedEvent(data) {
+    // Show celebration for everyone
+    const drawer = data.nickname || data.user || 'Someone';
+    const pointsEarned = data.points_earned || 0;
+
+    showToast(`🎉 ${drawer} completed their dare! (+${pointsEarned} pts)`, 5000);
+
+    if (data.tier_upgraded) {
+      showToast(`🌟 ${drawer} unlocked tier: ${data.tier.name}!`, 5000);
+    }
+
+    playCelebrationSound();
+    triggerConfetti();
+
+    // Mark the vote panel as completed
+    const panel = document.querySelector('#skribbl-dare-vote-panel');
+    if (panel) {
+      panel.classList.add('approved');
+      const btn = panel.querySelector('#skribbl-dare-vote-btn');
+      if (btn) {
+        btn.innerHTML = `🎉 Dare Approved! +${pointsEarned} pts`;
+        btn.disabled = true;
+      }
+    }
+
+    // If I'm the drawer, update HUD
+    if (isDrawingThisRound) {
+      const hud = document.querySelector('#skribbl-dare-hud');
+      if (hud) {
+        const infoEl = hud.querySelector('.skribbl-dare-hud-info');
+        if (infoEl) {
+          infoEl.innerHTML = `🎉 Your dare was approved! +${pointsEarned} pts earned!`;
+          infoEl.style.color = '#10b981';
+          infoEl.style.fontWeight = '700';
+        }
+      }
+
+      // Refresh user data
+      if (currentUser) {
+        currentUser.points = data.total_points || currentUser.points;
+        if (data.tier) currentUser.tier = data.tier;
+      }
+      updateAllUI();
+    }
+
+    // Auto-remove vote panel after 8 seconds
+    setTimeout(() => {
+      removeVotePanel();
+    }, 8000);
+
+    // Reset round state
+    isDrawingThisRound = false;
+    hasVotedThisRound = false;
+    activeDare = null;
+  }
+
+  // --- 10. Player List Sticker Injection (sticker icon only, NO tier name text) ---
   function updatePlayerBadges() {
     const playerRows = document.querySelectorAll('#game-players .player');
     if (!playerRows.length) return;
@@ -706,16 +820,14 @@
       }
       badgeContainer.dataset.badgeKey = badgeKey;
 
+      // Only show sticker icon — no tier name text per user request
       badgeContainer.innerHTML = `
         <img class="skribbl-dare-sticker" src="${stickerSrc}" alt="${playerInfo.tier.name}" title="${playerInfo.tier.name} (${playerInfo.tier.rarity}) · ${playerInfo.points} pts">
-        <span class="skribbl-dare-tier-tag" style="background: ${playerInfo.tier.color_hex}22; border-color: ${playerInfo.tier.color_hex}; color: ${playerInfo.tier.color_hex};">
-          ${playerInfo.tier.name}
-        </span>
       `;
     });
   }
 
-  // --- 10. UI Audio & Confetti Effects ---
+  // --- 11. UI Audio & Confetti Effects ---
   function playCelebrationSound() {
     try {
       const ctx = new (window.AudioContext || window.webkitAudioContext)();

@@ -273,54 +273,7 @@
   object-fit: contain;
 }
 
-/* --- 4. "Completed Dare" Action Button --- */
-#btn-completed-dare {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-  color: #ffffff;
-  border: 2px solid #34d399;
-  border-radius: 6px;
-  padding: 6px 14px;
-  font-size: 13px;
-  font-weight: 700;
-  font-family: inherit;
-  cursor: pointer;
-  box-shadow: 0 4px 10px rgba(16, 185, 129, 0.35);
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  margin-left: 8px;
-  user-select: none;
-  vertical-align: middle;
-}
-
-#btn-completed-dare:hover:not(.disabled):not(.claimed) {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(16, 185, 129, 0.5);
-  background: linear-gradient(135deg, #34d399 0%, #10b981 100%);
-}
-
-#btn-completed-dare:active:not(.disabled):not(.claimed) {
-  transform: translateY(1px);
-}
-
-#btn-completed-dare.disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  filter: grayscale(0.5);
-  box-shadow: none;
-}
-
-#btn-completed-dare.claimed {
-  background: linear-gradient(135deg, #059669 0%, #047857 100%);
-  border-color: #6ee7b7;
-  color: #ecfdf5;
-  cursor: default;
-  box-shadow: 0 0 12px rgba(16, 185, 129, 0.5);
-}
-
-/* --- 5. Floating HUD (Active Dare Reminder During Drawing) --- */
+/* --- 4. Floating HUD (Active Dare Reminder for Drawer — info only, no claim btn) --- */
 .skribbl-dare-hud {
   position: fixed;
   bottom: 24px;
@@ -371,33 +324,11 @@
   line-height: 1.35;
 }
 
-.skribbl-dare-hud-claim-btn {
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-  color: #ffffff;
-  border: 1px solid #34d399;
-  border-radius: 8px;
-  padding: 8px 12px;
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  transition: all 0.2s ease;
-  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
-}
-
-.skribbl-dare-hud-claim-btn:hover:not(:disabled) {
-  background: linear-gradient(135deg, #34d399 0%, #10b981 100%);
-  transform: translateY(-1px);
-  box-shadow: 0 6px 16px rgba(16, 185, 129, 0.5);
-}
-
-.skribbl-dare-hud-claim-btn.claimed {
-  background: #047857;
-  border-color: #6ee7b7;
-  cursor: default;
+.skribbl-dare-hud-info {
+  font-size: 11px;
+  color: #94a3b8;
+  font-style: italic;
+  line-height: 1.4;
 }
 
 .skribbl-dare-hud-close {
@@ -412,6 +343,125 @@
 
 .skribbl-dare-hud-close:hover {
   color: #ffffff;
+}
+
+/* --- 5. Guesser Voting Panel (floating, separate from #game-rate) --- */
+.skribbl-dare-vote-panel {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 9999;
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.96), rgba(30, 41, 59, 0.96));
+  border: 2px solid rgba(99, 102, 241, 0.5);
+  border-radius: 14px;
+  padding: 14px 18px;
+  max-width: 340px;
+  min-width: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 20px rgba(99, 102, 241, 0.2);
+  backdrop-filter: blur(12px);
+  font-family: 'Segoe UI', Roboto, sans-serif;
+  color: #f8fafc;
+  animation: skribblVotePanelIn 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.skribbl-dare-vote-panel.approved {
+  border-color: #10b981;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 25px rgba(16, 185, 129, 0.4);
+}
+
+@keyframes skribblVotePanelIn {
+  from {
+    opacity: 0;
+    transform: translateY(30px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.skribbl-dare-vote-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.skribbl-dare-vote-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  border: 1px solid;
+}
+
+.skribbl-dare-vote-dare-text {
+  font-size: 12px;
+  color: #cbd5e1;
+  text-align: center;
+}
+
+.skribbl-dare-vote-dare-desc {
+  font-size: 14px;
+  font-weight: 600;
+  color: #e2e8f0;
+  text-align: center;
+  line-height: 1.4;
+  font-style: italic;
+  padding: 4px 0;
+}
+
+.skribbl-dare-vote-progress {
+  text-align: center;
+  font-size: 11px;
+  color: #94a3b8;
+  font-weight: 600;
+}
+
+.skribbl-dare-vote-btn {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: #ffffff;
+  border: 2px solid #34d399;
+  border-radius: 10px;
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+  font-family: inherit;
+}
+
+.skribbl-dare-vote-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #34d399 0%, #10b981 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(16, 185, 129, 0.5);
+}
+
+.skribbl-dare-vote-btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.skribbl-dare-vote-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.skribbl-dare-vote-btn.voted {
+  background: linear-gradient(135deg, #059669 0%, #047857 100%);
+  border-color: #6ee7b7;
+  cursor: default;
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.4);
 }
 
 /* --- 6. Player List Badges & Stickers --- */
@@ -435,17 +485,6 @@
 
 .skribbl-dare-sticker:hover {
   transform: scale(1.4) rotate(8deg);
-}
-
-.skribbl-dare-tier-tag {
-  font-size: 9.5px;
-  font-weight: 700;
-  padding: 1.5px 6px;
-  border-radius: 12px;
-  border: 1px solid;
-  letter-spacing: 0.3px;
-  white-space: nowrap;
-  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.2);
 }
 
 /* --- 7. Notification Toast --- */
