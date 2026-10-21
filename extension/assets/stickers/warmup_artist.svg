@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <defs>
+    <linearGradient id="warmup-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10b981"/>
+      <stop offset="100%" stop-color="#059669"/>
+    </linearGradient>
+    <linearGradient id="brush-flame" x1="0%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#f59e0b"/>
+      <stop offset="100%" stop-color="#ef4444"/>
+    </linearGradient>
+    <filter id="glow-warmup" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#10b981" flood-opacity="0.4"/>
+    </filter>
+  </defs>
+  <!-- Base circle badge -->
+  <circle cx="50" cy="50" r="44" fill="url(#warmup-bg)" stroke="#34d399" stroke-width="3" filter="url(#glow-warmup)"/>
+  
+  <!-- Artist Palette outline -->
+  <path d="M50 20 C65 20 78 30 78 45 C78 52 74 57 68 57 C64 57 62 60 63 64 C64 68 62 72 56 74 C52 75 42 75 34 68 C25 60 22 48 22 40 C22 28 35 20 50 20 Z" fill="#ffffff" fill-opacity="0.9"/>
+  
+  <!-- Paint wells on palette -->
+  <circle cx="38" cy="34" r="4" fill="#ef4444"/>
+  <circle cx="50" cy="30" r="4" fill="#3b82f6"/>
+  <circle cx="62" cy="35" r="4" fill="#eab308"/>
+  <circle cx="68" cy="48" r="4" fill="#10b981"/>
+  
+  <!-- Warm flame brush -->
+  <g transform="translate(42, 38) rotate(35)">
+    <!-- Brush handle -->
+    <rect x="-3" y="10" width="6" height="28" rx="2" fill="#78350f"/>
+    <!-- Ferrule -->
+    <rect x="-4" y="5" width="8" height="6" fill="#94a3b8"/>
+    <!-- Bristles / flame tip -->
+    <path d="M-4 5 C-4 -2 0 -10 0 -10 C0 -10 4 -2 4 5 Z" fill="url(#brush-flame)"/>
+  </g>
+  
+  <!-- Small sparkle -->
+  <polygon points="76,22 78,27 83,29 78,31 76,36 74,31 69,29 74,27" fill="#fef08a"/>
+</svg>

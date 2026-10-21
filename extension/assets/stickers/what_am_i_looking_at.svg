@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <defs>
+    <radialGradient id="cosmic-bg" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#fbbf24"/>
+      <stop offset="60%" stop-color="#d97706"/>
+      <stop offset="100%" stop-color="#451a03"/>
+    </radialGradient>
+    <linearGradient id="lens-portal" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ec4899"/>
+      <stop offset="50%" stop-color="#8b5cf6"/>
+      <stop offset="100%" stop-color="#06b6d4"/>
+    </linearGradient>
+    <filter id="glow-legendary" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="2" stdDeviation="5" flood-color="#f59e0b" flood-opacity="0.8"/>
+    </filter>
+  </defs>
+  
+  <!-- Outer radiant golden ring -->
+  <circle cx="50" cy="50" r="44" fill="url(#cosmic-bg)" stroke="#fef08a" stroke-width="3" filter="url(#glow-legendary)"/>
+  
+  <!-- Sunburst / Cosmic rays -->
+  <g stroke="#fef08a" stroke-width="2" stroke-linecap="round" opacity="0.7">
+    <line x1="50" y1="8" x2="50" y2="14"/>
+    <line x1="50" y1="86" x2="50" y2="92"/>
+    <line x1="8" y1="50" x2="14" y2="50"/>
+    <line x1="86" y1="50" x2="92" y2="50"/>
+    <line x1="20" y1="20" x2="25" y2="25"/>
+    <line x1="80" y1="80" x2="75" y2="75"/>
+    <line x1="80" y1="20" x2="75" y2="25"/>
+    <line x1="20" y1="80" x2="25" y2="75"/>
+  </g>
+  
+  <!-- Giant Magnifying Glass Lens with Cosmic Portal -->
+  <g transform="translate(44, 44)">
+    <!-- Lens frame -->
+    <circle cx="0" cy="0" r="24" fill="url(#lens-portal)" stroke="#ffffff" stroke-width="3.5"/>
+    
+    <!-- Enigmatic Doodle Inside: Eyeball in spiral galaxy -->
+    <!-- Spiral doodle -->
+    <path d="M-10 6 Q-14 -10 0 -14 Q14 -14 12 4 Q10 14 -2 12 Q-10 10 -6 0" fill="none" stroke="#fef08a" stroke-width="2" stroke-linecap="round"/>
+    
+    <!-- Eye of the Unfathomable -->
+    <ellipse cx="0" cy="-2" rx="9" ry="6" fill="#ffffff"/>
+    <circle cx="0" cy="-2" r="3.5" fill="#1e1b4b"/>
+    <circle cx="1" cy="-3" r="1.5" fill="#38bdf8"/>
+    
+    <!-- Question mark doodle -->
+    <path d="M-6 -8 Q0 -14 6 -8 Q8 -4 2 0 L2 3" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round"/>
+    <circle cx="2" cy="6" r="1.2" fill="#ffffff"/>
+    
+    <!-- Magnifying glass handle -->
+    <rect x="18" y="16" width="7" height="24" rx="3.5" transform="rotate(-45 18 16)" fill="#78350f" stroke="#fbbf24" stroke-width="2"/>
+  </g>
+  
+  <!-- Sparkling Stars -->
+  <polygon points="26,26 28,31 33,33 28,35 26,40 24,35 19,33 24,31" fill="#ffffff"/>
+  <polygon points="76,64 78,68 82,70 78,72 76,76 74,72 70,70 74,68" fill="#ffffff"/>
+</svg>
